@@ -7,3 +7,4 @@ ml-service/model/*.pkl
 __pycache__/
 .DS_Store
 txt
+/temp
