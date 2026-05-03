@@ -9,8 +9,10 @@ services:
     volumes:
       - mongo-data:/data/db
     restart: unless-stopped
+    networks:
+      - raktsetu-network
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -24,11 +26,16 @@ services:
       - ML_PORT=5001
       - FLASK_DEBUG=false
     restart: unless-stopped
+    networks:
+      - raktsetu-network
+    volumes:
+      - ml-models:/app/model
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
   server:
     build: ./server
@@ -36,25 +43,30 @@ services:
     ports:
       - "5000:5000"
     environment:
+      - NODE_ENV=production
+      - PORT=5000
       - MONGODB_URI=mongodb://mongodb:27017/raktsetu
-      - JWT_SECRET=${JWT_SECRET:-raktsetu_jwt_secret_2024}
+      - JWT_SECRET=${JWT_SECRET:-raktsetu_jwt_secret_2024_change_me}
       - JWT_EXPIRE=7d
       - ML_SERVICE_URL=http://ml-service:5001
-      - PORT=5000
-      - NODE_ENV=production
+      - MAPBOX_TOKEN=${MAPBOX_TOKEN:-}
     depends_on:
       mongodb:
         condition: service_healthy
       ml-service:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - raktsetu-network
+    volumes:
+      - ./server:/app
+      - /app/node_modules
 
   client:
     build:
       context: ./client
       args:
-        - VITE_API_URL=/api
-        - VITE_SOCKET_URL=
+        - VITE_API_URL=/api  # FIXED: Use relative path, not localhost
         - VITE_MAPBOX_TOKEN=${MAPBOX_TOKEN:-}
     container_name: raktsetu-client
     ports:
@@ -62,6 +74,13 @@ services:
     depends_on:
       - server
     restart: unless-stopped
+    networks:
+      - raktsetu-network
+
+networks:
+  raktsetu-network:
+    driver: bridge
 
 volumes:
   mongo-data:
+  ml-models:

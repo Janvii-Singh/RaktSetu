@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+// Use relative path for Docker, localhost for development
+const API_URL = import.meta.env.VITE_API_URL || 
+  (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : '/api');
 
 const api = axios.create({
   baseURL: API_URL,
@@ -48,5 +50,9 @@ export const fulfillRequest = (id, data) => api.put(`/requests/${id}/fulfill`, d
 // Notifications
 export const getNotifications = (params) => api.get('/notifications', { params });
 export const markNotificationsRead = (data) => api.put('/notifications/read', data);
+
+// ML Service
+export const getMLHealth = () => api.get('/requests/ml-health');
+export const getMLRankings = (requestId) => api.get(`/requests/${requestId}/ml-rankings`);
 
 export default api;
