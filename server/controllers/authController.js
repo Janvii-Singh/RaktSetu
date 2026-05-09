@@ -24,23 +24,24 @@ exports.loginValidation = [
 // @route   POST /api/auth/register
 exports.register = async (req, res, next) => {
   try {
-    const { name, email, password, role, phone, bloodGroup, location } = req.body;
+    const { name, email, password, role, phone, bloodGroup, location, healthStatus } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists with this email' });
     }
 
-    const user = await User.create({
-      name,
-      email,
-      password,
-      role,
-      phone,
-      bloodGroup,
-      location,
-    });
+    const userData = {
+      name, email, password, role, phone, bloodGroup, location,
+      lastLoginDate: new Date(),
+    };
 
+    // Save health status for donors, stamped with current time
+    if (role === 'donor' && healthStatus) {
+      userData.healthStatus = { ...healthStatus, lastUpdated: new Date() };
+    }
+
+    const user = await User.create(userData);
     const token = generateToken(user._id);
 
     res.status(201).json({
@@ -54,6 +55,7 @@ exports.register = async (req, res, next) => {
         bloodGroup: user.bloodGroup,
         location: user.location,
         isAvailable: user.isAvailable,
+        healthStatus: user.healthStatus,
       },
     });
   } catch (error) {
@@ -77,6 +79,9 @@ exports.login = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    // Track last login time for inactivity detection
+    await User.findByIdAndUpdate(user._id, { lastLoginDate: new Date() });
+
     const token = generateToken(user._id);
 
     res.json({
@@ -91,6 +96,7 @@ exports.login = async (req, res, next) => {
         location: user.location,
         isAvailable: user.isAvailable,
         lastDonationDate: user.lastDonationDate,
+        healthStatus: user.healthStatus,
       },
     });
   } catch (error) {

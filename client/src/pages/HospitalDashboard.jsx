@@ -7,13 +7,18 @@ export default function HospitalDashboard() {
   const [donorCount, setDonorCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchData = () => {
+    setLoading(true);
     Promise.all([
       getRequests().then((res) => setRequests(res.data.requests)),
       getDonors({ available: 'true' })
         .then((res) => setDonorCount(res.data.count))
         .catch(() => {}),
     ]).finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchData();
   }, []);
 
   const stats = {
@@ -49,12 +54,20 @@ export default function HospitalDashboard() {
           <h1 className="text-2xl font-bold text-gray-900">Hospital Dashboard</h1>
           <p className="text-gray-600">Manage blood requests and donor pool</p>
         </div>
-        <Link
-          to="/dashboard/requests/new"
-          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium"
-        >
-          + New Request
-        </Link>
+        <div className="flex gap-2">
+          <button
+            onClick={fetchData}
+            className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            ↻ Refresh
+          </button>
+          <Link
+            to="/dashboard/requests/new"
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium"
+          >
+            + New Request
+          </Link>
+        </div>
       </div>
 
       {/* Stats */}

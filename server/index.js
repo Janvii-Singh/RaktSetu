@@ -5,6 +5,7 @@ const http = require('http');
 const connectDB = require('./config/db');
 const env = require('./config/env');
 const { initSocket } = require('./socket/socketServer');
+const { initCronJobs } = require('./services/cronService');
 
 // Connect to database
 connectDB();
@@ -15,6 +16,9 @@ const server = http.createServer(app);
 // Initialize Socket.io
 const io = initSocket(server);
 app.set('io', io);
+
+// Initialize scheduled cron jobs
+initCronJobs();
 
 // Middleware
 app.use(cors());

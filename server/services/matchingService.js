@@ -71,8 +71,24 @@ async function findMatchingDonors(bloodRequest, options = {}) {
 
   if (donors.length === 0) return [];
 
+  // Filter out donors with blocking health conditions
+  const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+  const healthEligibleDonors = donors.filter((donor) => {
+    const hs = donor.healthStatus;
+    if (!hs) return true;
+    if (hs.hasFever) return false;
+    if (hs.isPregnant) return false;
+    if (hs.onMedication) return false;
+    if (hs.weight && hs.weight < 50) return false;
+    if (hs.hadRecentSurgery && hs.surgeryDate && hs.surgeryDate > sixMonthsAgo) return false;
+    if (hs.hadRecentTattooOrPiercing && hs.tattooOrPiercingDate && hs.tattooOrPiercingDate > sixMonthsAgo) return false;
+    return true;
+  });
+
+  if (healthEligibleDonors.length === 0) return [];
+
   // Get donation history counts
-  const donorIds = donors.map((d) => d._id);
+  const donorIds = healthEligibleDonors.map((d) => d._id);
   const historyCounts = await DonationHistory.aggregate([
     { $match: { donorId: { $in: donorIds }, accepted: true } },
     { $group: { _id: '$donorId', count: { $sum: 1 } } },
@@ -84,7 +100,7 @@ async function findMatchingDonors(bloodRequest, options = {}) {
 
   // Prepare features for ML service
   const now = new Date();
-  const features = donors.map((donor) => {
+  const features = healthEligibleDonors.map((donor) => {
     const distance = calculateDistance(
       bloodRequest.location.coordinates,
       donor.location.coordinates
@@ -115,7 +131,7 @@ async function findMatchingDonors(bloodRequest, options = {}) {
   }
 
   // Rank donors
-  const rankedDonors = donors.map((donor, i) => {
+  const rankedDonors = healthEligibleDonors.map((donor, i) => {
     const feature = features[i];
     const mlScore = mlScores ? mlScores[i] : 0.5;
     const proximityScore = 1 - feature.distance_km / radiusKm;

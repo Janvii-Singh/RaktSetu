@@ -5,6 +5,17 @@ import LocationPicker from '../components/LocationPicker';
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
+const defaultHealth = (existing) => ({
+  hasFever: existing?.hasFever ?? false,
+  isPregnant: existing?.isPregnant ?? false,
+  onMedication: existing?.onMedication ?? false,
+  hadRecentSurgery: existing?.hadRecentSurgery ?? false,
+  surgeryDate: existing?.surgeryDate ? new Date(existing.surgeryDate).toISOString().split('T')[0] : '',
+  hadRecentTattooOrPiercing: existing?.hadRecentTattooOrPiercing ?? false,
+  tattooOrPiercingDate: existing?.tattooOrPiercingDate ? new Date(existing.tattooOrPiercingDate).toISOString().split('T')[0] : '',
+  weight: existing?.weight ?? '',
+});
+
 export default function Profile() {
   const { user, updateUser } = useAuth();
   const [form, setForm] = useState({
@@ -14,9 +25,13 @@ export default function Profile() {
     isAvailable: user?.isAvailable ?? true,
     location: user?.location || { type: 'Point', coordinates: [77.2090, 28.6139], address: '' },
   });
+  const [health, setHealth] = useState(() => defaultHealth(user?.healthStatus));
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const updateHealth = (field) => (e) =>
+    setHealth({ ...health, [field]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -24,7 +39,16 @@ export default function Profile() {
     setSuccess('');
     setLoading(true);
     try {
-      const res = await updateProfile(form);
+      const payload = { ...form };
+      if (user?.role === 'donor') {
+        payload.healthStatus = {
+          ...health,
+          weight: health.weight ? parseFloat(health.weight) : undefined,
+          surgeryDate: health.hadRecentSurgery && health.surgeryDate ? health.surgeryDate : undefined,
+          tattooOrPiercingDate: health.hadRecentTattooOrPiercing && health.tattooOrPiercingDate ? health.tattooOrPiercingDate : undefined,
+        };
+      }
+      const res = await updateProfile(payload);
       updateUser(res.data.user);
       setSuccess('Profile updated successfully');
     } catch (err) {
@@ -113,6 +137,97 @@ export default function Profile() {
             }
           />
         </div>
+
+        {/* ── Health Status (donors only) ── */}
+        {user?.role === 'donor' && (
+          <div className="border-t border-gray-200 pt-5">
+            <h2 className="text-lg font-semibold text-gray-800 mb-1">Health Status</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Keep this up to date. Your eligibility to donate is re-evaluated each time you save.
+              {user?.healthStatus?.lastUpdated && (
+                <> Last updated: <strong>{new Date(user.healthStatus.lastUpdated).toLocaleDateString()}</strong></>
+              )}
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Weight (kg)</label>
+                <input
+                  type="number" min="1"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  placeholder="e.g. 65"
+                  value={health.weight}
+                  onChange={updateHealth('weight')}
+                />
+                {health.weight && parseFloat(health.weight) < 50 && (
+                  <p className="text-red-500 text-xs mt-1">You must weigh at least 50 kg to be eligible to donate.</p>
+                )}
+              </div>
+
+              {[
+                { field: 'hasFever', label: 'Do you currently have a fever or feel unwell?' },
+                { field: 'isPregnant', label: 'Are you currently pregnant or breastfeeding?' },
+                { field: 'onMedication', label: 'Are you currently on any medication?' },
+                { field: 'hadRecentSurgery', label: 'Have you had a surgery in the past 6 months?' },
+                { field: 'hadRecentTattooOrPiercing', label: 'Have you had a tattoo or piercing in the past 6 months?' },
+              ].map(({ field, label }) => (
+                <div key={field} className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg">
+                  <div className="flex gap-4 items-center shrink-0">
+                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                      <input type="radio" name={`health-${field}`} checked={health[field] === true}
+                        onChange={() => setHealth({ ...health, [field]: true })} />
+                      Yes
+                    </label>
+                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                      <input type="radio" name={`health-${field}`} checked={health[field] === false}
+                        onChange={() => setHealth({ ...health, [field]: false })} />
+                      No
+                    </label>
+                  </div>
+                  <p className="text-sm text-gray-700 flex-1">{label}</p>
+                </div>
+              ))}
+
+              {health.hadRecentSurgery && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date of Surgery</label>
+                  <input type="date" max={new Date().toISOString().split('T')[0]}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    value={health.surgeryDate} onChange={updateHealth('surgeryDate')} />
+                </div>
+              )}
+
+              {health.hadRecentTattooOrPiercing && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date of Tattoo / Piercing</label>
+                  <input type="date" max={new Date().toISOString().split('T')[0]}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    value={health.tattooOrPiercingDate} onChange={updateHealth('tattooOrPiercingDate')} />
+                </div>
+              )}
+
+              {/* Eligibility preview */}
+              {(() => {
+                const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+                const blocked =
+                  health.hasFever || health.isPregnant || health.onMedication ||
+                  (health.weight && parseFloat(health.weight) < 50) ||
+                  (health.hadRecentSurgery && health.surgeryDate && new Date(health.surgeryDate) > sixMonthsAgo) ||
+                  (health.hadRecentTattooOrPiercing && health.tattooOrPiercingDate && new Date(health.tattooOrPiercingDate) > sixMonthsAgo);
+
+                return blocked ? (
+                  <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-lg text-sm">
+                    Based on your answers, you will be marked <strong>temporarily ineligible</strong>. Your availability will be set to off until conditions change.
+                  </div>
+                ) : (
+                  <div className="bg-green-50 border border-green-200 text-green-800 p-3 rounded-lg text-sm">
+                    You appear eligible to donate blood.
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         <button
           type="submit"

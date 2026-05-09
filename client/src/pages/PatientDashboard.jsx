@@ -6,11 +6,16 @@ export default function PatientDashboard() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchData = () => {
+    setLoading(true);
     getRequests()
       .then((res) => setRequests(res.data.requests))
       .catch(() => {})
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchData();
   }, []);
 
   const statusColors = {
@@ -33,12 +38,20 @@ export default function PatientDashboard() {
           <h1 className="text-2xl font-bold text-gray-900">Patient Dashboard</h1>
           <p className="text-gray-600">Track your blood requests and donor responses</p>
         </div>
-        <Link
-          to="/dashboard/requests/new"
-          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium"
-        >
-          + New Request
-        </Link>
+        <div className="flex gap-2">
+          <button
+            onClick={fetchData}
+            className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            ↻ Refresh
+          </button>
+          <Link
+            to="/dashboard/requests/new"
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium"
+          >
+            + New Request
+          </Link>
+        </div>
       </div>
 
       {/* Stats */}
