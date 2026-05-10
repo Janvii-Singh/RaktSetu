@@ -36,9 +36,7 @@
   ```
   mongodb+srv://raktsetu_user:YOUR_PASSWORD@cluster0.xxxxx.mongodb.net/raktsetu?retryWrites=true&w=majority
   ```
-
-mongodb+srv://raktsetu_user:User@123@raktsetu.2dtxmy5.mongodb.net/raktsetu?appName=raktsetu
-
+  
 ---
 
 ## Step 2: Launch EC2 Instance (10 minutes)
