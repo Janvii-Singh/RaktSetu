@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getRequests, getMLRankings } from '../services/api';
 import { TrendingUp, MapPin, Clock, Phone, Award, Brain, X } from 'lucide-react';
+import { io } from 'socket.io-client';
 
 export default function PatientDashboard() {
   const [requests, setRequests] = useState([]);
@@ -22,6 +23,21 @@ export default function PatientDashboard() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+  if (user?._id) {
+    const socket = io('http://localhost:5000');
+    socket.emit('join', `user_${user._id}`);
+    
+    socket.on('donor_response_update', (data) => {
+      console.log('Donor response received:', data);
+      // Refresh requests to show updated donor responses
+      getRequests().then((res) => setRequests(res.data.requests));
+    });
+    
+    return () => socket.disconnect();
+  }
+}, [user?._id]);
 
   const fetchMLRankings = async (request) => {
     setSelectedRequest(request);
