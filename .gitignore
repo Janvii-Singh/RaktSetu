@@ -8,3 +8,4 @@ __pycache__/
 .DS_Store
 txt
 /tempArchive.zip
+temp/Archive.zip
