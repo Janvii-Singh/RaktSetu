@@ -208,9 +208,17 @@ exports.fulfillRequest = async (req, res, next) => {
     request.fulfilledBy = donorId || req.user._id;
     await request.save();
 
-    // Update donor's last donation date
+    // Update donor: set last donation date and mark unavailable for 90-day cooldown
     await User.findByIdAndUpdate(request.fulfilledBy, {
       lastDonationDate: new Date(),
+      isAvailable: false,
+    });
+
+    // Notify the donor about their 90-day cooldown
+    await Notification.create({
+      userId: request.fulfilledBy,
+      type: 'general',
+      message: `Thank you for donating blood! You have been marked unavailable for the next 90 days as per medical guidelines. You will be automatically re-enabled after the cooldown.`,
     });
 
     // Update donation history

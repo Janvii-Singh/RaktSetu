@@ -12,6 +12,29 @@ exports.updateProfile = async (req, res, next) => {
       }
     }
 
+    // Handle health status update for donors
+    if (req.user.role === 'donor' && req.body.healthStatus) {
+      updates.healthStatus = {
+        ...req.body.healthStatus,
+        lastUpdated: new Date(),
+      };
+
+      // Auto-set unavailable if any blocking health condition is present
+      const hs = updates.healthStatus;
+      const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      const healthBlocking =
+        hs.hasFever ||
+        hs.isPregnant ||
+        hs.onMedication ||
+        (hs.weight && hs.weight < 50) ||
+        (hs.hadRecentSurgery && hs.surgeryDate && new Date(hs.surgeryDate) > sixMonthsAgo) ||
+        (hs.hadRecentTattooOrPiercing && hs.tattooOrPiercingDate && new Date(hs.tattooOrPiercingDate) > sixMonthsAgo);
+
+      if (healthBlocking) {
+        updates.isAvailable = false;
+      }
+    }
+
     const user = await User.findByIdAndUpdate(req.user._id, updates, {
       new: true,
       runValidators: true,
