@@ -20,14 +20,13 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p /app/model /app/data /app/scripts/data
 
-# Generate data and train model during build (with error handling)
-RUN python scripts/generate_data.py || echo "Data generation failed"
-RUN python scripts/train_model.py || echo "Training failed"
-
 EXPOSE 5001
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD curl -f http://localhost:5001/health || exit 1
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--timeout", "120", "app:app"]
+# Train on startup if model doesn't exist, then start server
+CMD python scripts/generate_data.py 2>/dev/null || true && \
+    python scripts/train_model.py 2>/dev/null || true && \
+    gunicorn --bind 0.0.0.0:5001 --timeout 120 app:app

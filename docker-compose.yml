@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   mongodb:
-    image: mongo:7
+    image: mongo:5
     container_name: raktsetu-mongo
     ports:
       - "27017:27017"
@@ -70,7 +70,7 @@ services:
         - VITE_MAPBOX_TOKEN=${MAPBOX_TOKEN:-}
     container_name: raktsetu-client
     ports:
-      - "80:80"
+      - "3000:80"
     depends_on:
       - server
     restart: unless-stopped
