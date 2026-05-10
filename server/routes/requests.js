@@ -22,9 +22,7 @@ function calculateDistance(coord1, coord2) {
     return R * c;
 }
 
-// ========== IMPORTANT: Specific routes MUST come BEFORE dynamic routes ==========
-
-// GET ML Service Health (must be before /:id routes)
+// GET ML Service Health
 router.get('/ml-health', async (req, res) => {
     try {
         const health = await MLService.checkHealth();
@@ -37,22 +35,32 @@ router.get('/ml-health', async (req, res) => {
 // GET all requests (protected)
 router.get('/', protect, async (req, res) => {
     try {
-        const requests = await BloodRequest.find()
+        let query = {};
+        
+        if (req.user.role === 'donor') {
+            query = {
+                bloodGroup: req.user.bloodGroup,
+                status: { $in: ['open', 'matched'] }
+            };
+        }
+        
+        const requests = await BloodRequest.find(query)
             .populate('requesterId', 'name email phone')
+            .populate('matchedDonors.donorId', 'name email phone bloodGroup location')
             .sort('-createdAt')
             .limit(50);
+            
         res.json({ success: true, requests });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// CREATE BLOOD REQUEST with ML ranking (protected)
+// CREATE BLOOD REQUEST with ML ranking
 router.post('/', protect, async (req, res) => {
     try {
         const { bloodGroup, location, urgency, radius = 10, patientName, hospitalName, contactPhone, notes } = req.body;
         
-        // Validate required fields
         if (!bloodGroup || !location || !contactPhone) {
             return res.status(400).json({ 
                 success: false, 
@@ -60,17 +68,8 @@ router.post('/', protect, async (req, res) => {
             });
         }
         
-        // IMPORTANT: Get user from the protect middleware
         const requesterId = req.user._id;
         
-        if (!requesterId) {
-            return res.status(401).json({ 
-                success: false, 
-                error: 'User not authenticated. Please login again.' 
-            });
-        }
-        
-        // Create the request
         const request = new BloodRequest({
             bloodGroup,
             location,
@@ -85,7 +84,6 @@ router.post('/', protect, async (req, res) => {
         });
         await request.save();
         
-        // Find nearby eligible donors
         const nearbyDonors = await User.find({
             role: 'donor',
             isAvailable: true,
@@ -156,8 +154,10 @@ router.post('/', protect, async (req, res) => {
                 await Notification.create({
                     userId: donor._id,
                     type: 'new-request',
+                    title: 'New Blood Request',
                     message: `New ${request.urgency} blood request for ${request.bloodGroup} - ${(donor.distance).toFixed(1)}km away`,
-                    requestId: request._id
+                    requestId: request._id,
+                    isRead: false
                 });
             }
         }
@@ -182,7 +182,7 @@ router.post('/', protect, async (req, res) => {
     }
 });
 
-// GET single request (protected - must come AFTER specific routes)
+// GET single request
 router.get('/:id', protect, async (req, res) => {
     try {
         const request = await BloodRequest.findById(req.params.id)
@@ -199,7 +199,7 @@ router.get('/:id', protect, async (req, res) => {
     }
 });
 
-// GET REQUEST with ML-ranked donors (FIXED - now properly returns donor details)
+// GET REQUEST with ML-ranked donors
 router.get('/:id/ml-rankings', protect, async (req, res) => {
     try {
         const request = await BloodRequest.findById(req.params.id);
@@ -208,11 +208,9 @@ router.get('/:id/ml-rankings', protect, async (req, res) => {
             return res.status(404).json({ success: false, error: 'Request not found' });
         }
         
-        // Get full donor details for all matched donors
         const matchedDonorsWithDetails = [];
         
         for (const match of request.matchedDonors) {
-            // Fetch complete donor information
             const donor = await User.findById(match.donorId).select('name email phone bloodGroup location isAvailable');
             
             if (donor) {
@@ -234,7 +232,6 @@ router.get('/:id/ml-rankings', protect, async (req, res) => {
             }
         }
         
-        // Sort by ML score (highest first)
         matchedDonorsWithDetails.sort((a, b) => b.mlScore - a.mlScore);
         
         res.json({
@@ -254,38 +251,122 @@ router.get('/:id/ml-rankings', protect, async (req, res) => {
     }
 });
 
-// POST respond to request (protected)
+// POST respond to request (FIXED - Working Accept/Decline)
 router.post('/:id/respond', protect, async (req, res) => {
     try {
-        const { donorId, accepted } = req.body;
-        const request = await BloodRequest.findById(req.params.id);
+        console.log('=== RESPOND REQUEST RECEIVED ===');
+        console.log('Request ID:', req.params.id);
+        console.log('Request Body:', req.body);
+        console.log('Authenticated User ID:', req.user?._id);
+        console.log('Authenticated User Role:', req.user?.role);
         
-        if (!request) {
-            return res.status(404).json({ success: false, error: 'Request not found' });
+        const { donorId, accepted } = req.body;
+        
+        // Use the authenticated user's ID if donorId not provided or mismatch
+        let finalDonorId = donorId;
+        if (!finalDonorId || (req.user?.role === 'donor' && req.user?._id)) {
+            finalDonorId = req.user._id;
+            console.log('Using authenticated user ID as donorId:', finalDonorId);
         }
         
-        const matchedDonor = request.matchedDonors.find(m => m.donorId.toString() === donorId);
-        if (matchedDonor) {
-            matchedDonor.status = accepted ? 'accepted' : 'declined';
-            matchedDonor.respondedAt = new Date();
-            await request.save();
-            
-            const donor = await User.findById(donorId);
-            await Notification.create({
-                userId: request.requesterId,
-                type: 'donor-response',
-                message: `${donor.name} has ${accepted ? 'accepted' : 'declined'} your blood request`,
-                requestId: request._id
+        if (!finalDonorId) {
+            console.log('ERROR: No donorId available');
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Donor ID is required' 
             });
         }
         
-        res.json({ success: true, message: `Response recorded` });
+        const request = await BloodRequest.findById(req.params.id);
+        
+        if (!request) {
+            console.log('ERROR: Request not found');
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Request not found' 
+            });
+        }
+        
+        console.log('Request found. Blood Group:', request.bloodGroup);
+        console.log('Matched Donors count:', request.matchedDonors?.length || 0);
+        
+        if (!request.matchedDonors || request.matchedDonors.length === 0) {
+            console.log('ERROR: No matched donors in this request');
+            return res.status(400).json({ 
+                success: false, 
+                error: 'No donors are matched to this request yet' 
+            });
+        }
+        
+        // Find the matched donor
+        const matchedDonor = request.matchedDonors.find(m => {
+            const mId = m.donorId.toString();
+            const dId = finalDonorId.toString();
+            return mId === dId;
+        });
+        
+        if (!matchedDonor) {
+            console.log('Available donor IDs in request:', request.matchedDonors.map(m => m.donorId.toString()));
+            console.log('Looking for donor ID:', finalDonorId.toString());
+            return res.status(404).json({ 
+                success: false, 
+                error: 'You are not matched to this request. Please check your dashboard for available requests.' 
+            });
+        }
+        
+        console.log('Matched donor found. Current status:', matchedDonor.status);
+        
+        // Update donor status
+        matchedDonor.status = accepted ? 'accepted' : 'declined';
+        matchedDonor.respondedAt = new Date();
+        await request.save();
+        
+        console.log('Donor status updated to:', matchedDonor.status);
+        
+        const donor = await User.findById(finalDonorId);
+        
+        // Create notification for the requester
+        await Notification.create({
+            userId: request.requesterId,
+            type: 'donor-response',
+            title: `Donor ${accepted ? 'Accepted' : 'Declined'}`,
+            message: `${donor?.name || 'A donor'} has ${accepted ? 'accepted' : 'declined'} your blood request for ${request.bloodGroup}`,
+            requestId: request._id,
+            isRead: false
+        });
+        
+        // Send real-time notification via Socket.io
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`user_${request.requesterId}`).emit('donor_response_update', {
+                requestId: request._id,
+                donorId: finalDonorId,
+                donorName: donor?.name || 'A donor',
+                status: accepted ? 'accepted' : 'declined',
+                bloodGroup: request.bloodGroup,
+                distance: matchedDonor.distance,
+                score: matchedDonor.score
+            });
+        }
+        
+        console.log('=== RESPOND SUCCESS ===');
+        res.json({ 
+            success: true, 
+            message: `Request ${accepted ? 'accepted' : 'declined'} successfully`,
+            request: request
+        });
+        
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('=== RESPOND ERROR ===');
+        console.error('Error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
     }
 });
 
-// PUT fulfill request (protected)
+// PUT fulfill request
 router.put('/:id/fulfill', protect, async (req, res) => {
     try {
         const { donorId } = req.body;
@@ -300,12 +381,24 @@ router.put('/:id/fulfill', protect, async (req, res) => {
         request.fulfilledAt = new Date();
         await request.save();
         
+        const donor = await User.findById(donorId);
+        
         await Notification.create({
             userId: request.requesterId,
             type: 'request-fulfilled',
-            message: 'Your blood request has been fulfilled',
-            requestId: request._id
+            title: 'Request Fulfilled',
+            message: `Your blood request for ${request.bloodGroup} has been fulfilled by ${donor?.name || 'a donor'}`,
+            requestId: request._id,
+            isRead: false
         });
+        
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`user_${request.requesterId}`).emit('request_fulfilled', {
+                requestId: request._id,
+                message: `Your blood request for ${request.bloodGroup} has been fulfilled`
+            });
+        }
         
         res.json({ success: true, message: 'Request fulfilled' });
     } catch (error) {

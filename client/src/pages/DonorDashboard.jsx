@@ -3,36 +3,85 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { getRequests, respondToRequest } from '../services/api';
+import { io } from 'socket.io-client';
 
 export default function DonorDashboard() {
   const { user } = useAuth();
   const { notifications } = useNotifications();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [responding, setResponding] = useState(null);
+  const [socket, setSocket] = useState(null);
 
+  // Setup Socket.io connection
   useEffect(() => {
-    fetchRequests();
-  }, []);
+    if (user?._id) {
+      const newSocket = io('http://localhost:5000');
+      setSocket(newSocket);
+      newSocket.emit('join', `user_${user._id}`);
+      
+      // Listen for donor response updates
+      newSocket.on('donor_response_update', (data) => {
+        console.log('Donor response update received:', data);
+        fetchRequests(); // Refresh the requests list
+      });
+
+      return () => newSocket.disconnect();
+    }
+  }, [user?._id]);
 
   const fetchRequests = async () => {
     try {
-      const res = await getRequests({ status: 'matched' });
-      setRequests(res.data.requests);
-    } catch {
-      // Handle error
+        const res = await getRequests();
+        console.log('All requests:', res.data.requests);
+        
+        // Filter requests that match donor's blood group
+        const matchingRequests = res.data.requests.filter(req => {
+            // Check if blood group matches
+            if (req.bloodGroup !== user?.bloodGroup) return false;
+            
+            // Check if donor is in matchedDonors and status is pending
+            const match = req.matchedDonors?.find(m => 
+                (m.donorId?._id === user?._id || m.donorId === user?._id)
+            );
+            
+            console.log(`Request ${req._id}: match found =`, match);
+            
+            return match && match.status === 'pending';
+        });
+        
+        console.log('Matching requests:', matchingRequests);
+        setRequests(matchingRequests);
+    } catch (error) {
+        console.error('Error fetching requests:', error);
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
-  };
+};
 
   const handleRespond = async (requestId, accepted) => {
+    setResponding(requestId);
     try {
-      await respondToRequest(requestId, { accepted });
-      fetchRequests();
+        // Make sure donorId is being sent correctly
+        const response = await respondToRequest(requestId, { 
+            donorId: user._id, 
+            accepted: accepted 
+        });
+        
+        console.log('Response received:', response.data);
+        
+        // Remove the responded request from the list
+        setRequests(prev => prev.filter(req => req._id !== requestId));
+        
+        alert(`✓ You have ${accepted ? 'accepted' : 'declined'} this request`);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to respond');
+        console.error('Error responding:', err);
+        console.error('Error details:', err.response?.data);
+        alert(err.response?.data?.message || 'Failed to respond. Please try again.');
+    } finally {
+        setResponding(null);
     }
-  };
+};
 
   const getMyMatch = (request) => {
     return request.matchedDonors?.find(
@@ -45,6 +94,10 @@ export default function DonorDashboard() {
     urgent: 'bg-orange-100 text-orange-800',
     normal: 'bg-green-100 text-green-800',
   };
+
+  useEffect(() => {
+    fetchRequests();
+  }, []);
 
   return (
     <div>
@@ -92,7 +145,7 @@ export default function DonorDashboard() {
             return (
               <div key={req._id} className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <span className="text-lg font-bold text-primary-600">{req.bloodGroup}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${urgencyColors[req.urgency]}`}>
@@ -106,32 +159,41 @@ export default function DonorDashboard() {
                       {req.location?.address || `${req.location?.coordinates?.[1]?.toFixed(4)}, ${req.location?.coordinates?.[0]?.toFixed(4)}`}
                     </p>
                     {myMatch?.distance && (
-                      <p className="text-sm text-gray-500 mt-1">{myMatch.distance.toFixed(1)} km away</p>
+                      <p className="text-sm text-gray-500 mt-1">📍 {myMatch.distance.toFixed(1)} km away</p>
                     )}
-                    {req.notes && <p className="text-sm text-gray-500 mt-1">Note: {req.notes}</p>}
+                    {myMatch?.score && (
+                      <p className="text-sm text-purple-600 mt-1">🤖 AI Match Score: {(myMatch.score * 100).toFixed(0)}%</p>
+                    )}
+                    {req.notes && <p className="text-sm text-gray-500 mt-1">📝 Note: {req.notes}</p>}
                   </div>
 
-                  <div className="flex flex-col items-end gap-2">
-                    {myMatch?.status === 'pending' ? (
+                  <div className="flex flex-col items-end gap-2 ml-4">
+                    {myMatch?.status === 'pending' && (
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleRespond(req._id, true)}
-                          className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                          disabled={responding === req._id}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition disabled:opacity-50"
                         >
-                          Accept
+                          {responding === req._id ? 'Processing...' : '✓ Accept Request'}
                         </button>
                         <button
                           onClick={() => handleRespond(req._id, false)}
-                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300"
+                          disabled={responding === req._id}
+                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 transition disabled:opacity-50"
                         >
-                          Decline
+                          ✗ Decline
                         </button>
                       </div>
-                    ) : (
-                      <span className={`text-sm font-medium ${
-                        myMatch?.status === 'accepted' ? 'text-green-600' : 'text-gray-400'
-                      }`}>
-                        {myMatch?.status === 'accepted' ? 'Accepted' : 'Declined'}
+                    )}
+                    {myMatch?.status === 'accepted' && (
+                      <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+                        ✓ Accepted
+                      </span>
+                    )}
+                    {myMatch?.status === 'declined' && (
+                      <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium">
+                        ✗ Declined
                       </span>
                     )}
                     <Link to={`/dashboard/requests/${req._id}`} className="text-sm text-primary-600 hover:underline">
