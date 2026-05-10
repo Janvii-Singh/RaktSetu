@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { getRequests, getDonors, getMLRankings } from '../services/api';
 import { TrendingUp, MapPin, Clock, Phone, Award, Brain, X } from 'lucide-react';
 import { io } from 'socket.io-client';
 
 export default function HospitalDashboard() {
+  const { user } = useAuth();
   const [requests, setRequests] = useState([]);
   const [donorCount, setDonorCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -29,15 +31,17 @@ export default function HospitalDashboard() {
 
   useEffect(() => {
   if (user?._id) {
-    const socket = io('http://localhost:5000');
+    const socketUrl = import.meta.env.VITE_API_URL?.replace('/api', '') ||
+      (window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin);
+    const socket = io(socketUrl);
     socket.emit('join', `user_${user._id}`);
-    
+
     socket.on('donor_response_update', (data) => {
       console.log('Donor response received:', data);
       // Refresh requests to show updated donor responses
       getRequests().then((res) => setRequests(res.data.requests));
     });
-    
+
     return () => socket.disconnect();
   }
   }, [user?._id]);

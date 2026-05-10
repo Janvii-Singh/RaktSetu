@@ -16,10 +16,12 @@ export default function DonorDashboard() {
   // Setup Socket.io connection
   useEffect(() => {
     if (user?._id) {
-      const newSocket = io('http://localhost:5000');
+      const socketUrl = import.meta.env.VITE_API_URL?.replace('/api', '') ||
+        (window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin);
+      const newSocket = io(socketUrl);
       setSocket(newSocket);
       newSocket.emit('join', `user_${user._id}`);
-      
+
       // Listen for donor response updates
       newSocket.on('donor_response_update', (data) => {
         console.log('Donor response update received:', data);

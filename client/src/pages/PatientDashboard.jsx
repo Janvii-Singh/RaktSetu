@@ -26,15 +26,17 @@ export default function PatientDashboard() {
 
   useEffect(() => {
   if (user?._id) {
-    const socket = io('http://localhost:5000');
+    const socketUrl = import.meta.env.VITE_API_URL?.replace('/api', '') ||
+      (window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin);
+    const socket = io(socketUrl);
     socket.emit('join', `user_${user._id}`);
-    
+
     socket.on('donor_response_update', (data) => {
       console.log('Donor response received:', data);
       // Refresh requests to show updated donor responses
       getRequests().then((res) => setRequests(res.data.requests));
     });
-    
+
     return () => socket.disconnect();
   }
 }, [user?._id]);
